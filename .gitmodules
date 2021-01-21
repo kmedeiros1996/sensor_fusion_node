@@ -1,0 +1,3 @@
+[submodule "src/pyUKF"]
+	path = src/pyUKF
+	url = https://github.com/kmedeiros1996/pyUKF
