@@ -22,9 +22,9 @@ from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Quaternion, Pose, Twist, PoseWithCovariance, TwistWithCovariance, PoseArray
 from tf.transformations import euler_from_quaternion, quaternion_from_euler
 
-ix, iy, iyaw, ivx, ivyaw, iax = np.arange(0, 6)
+ix, iy, iyaw, ivx, ivy, ivyaw, iax, iay = np.arange(0, 8)
 
-StateVec = recordclass("StateVec", "x y yaw vx vyaw ax")
+StateVec = recordclass("StateVec", "x y yaw vx vy vyaw ax ay")
 
 def state_2_pose(state_vec):
     out = Pose()
@@ -38,7 +38,7 @@ def state_2_pose(state_vec):
 def state_2_twist(state_vec):
     out = Twist()
     out.linear.x = state_vec.vx
-    out.linear.y = 0
+    out.linear.y = state_vec.vy
     out.linear.z = 0
     out.angular.x = 0
     out.angular.y = 0
@@ -51,14 +51,13 @@ def fill_pose_covariance(cov):
 
     out[:2, 5] = cov[:2, 2]
     out[5, :2] = out[:2, 5]
-
     out[5, 5] = cov[2, 2]
-
     return out.flatten()
 
 def fill_twist_covariance(cov):
     out = np.eye(6)
     out[0, 0] = cov[3, 3]
+    out[1, 1] = cov[4, 4]
     out[0, 5] = cov[2, 3]
     out[5, 0] = out[0, 5]
     out[5, 5] = cov[4, 4]
@@ -95,11 +94,11 @@ def sigmas_2_pose_array(sigmas, frame="odom"):
 def odom_to_state(msg):
     x = msg.pose.pose.position.x
     y = msg.pose.pose.position.y
-
     q = msg.pose.pose.orientation
     _,_,yaw = euler_from_quaternion((q.x, q.y, q.z, q.w))
 
     vx = msg.twist.twist.linear.x
+    vy = msg.twist.twist.linear.y
     vyaw = msg.twist.twist.angular.z
 
-    return np.array([x, y, yaw, vx, vyaw, 0])
+    return np.array([x, y, yaw, vx, vy, vyaw, 0, 0])

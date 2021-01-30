@@ -145,15 +145,16 @@ class SensorFusionNode:
         Dynamics function describing how the state is affected without input.
 
         As part of our state vector, we are tracking
-        [x, y, yaw, vx, vyaw, ax]
+        [x, y, yaw, vx, vy, vyaw, ax, ay]
 
         where
         - (x, y) is the absolute cartesian robot pose (meters)
         - yaw is the absolute heading (radians)
         - vx is the velocity along the x direction (meters/s)
+        - vy is the velocity along the y direction (meters/s)
         - vw is the angular yaw rate (radians/s)
         - ax is the acceleration along the x direction (meters/s^2)
-
+        - ay is the acceleration along the y direction (meters/s^2)
         (x, y, yaw) is indirectly estimated from
         the velocity and acceleration measurements given from the IMU and odometry,
         which the absolute pose is integrated from w.r.t. time.
@@ -161,13 +162,22 @@ class SensorFusionNode:
 
         state = StateVec(*state_vec)
         new_state = state
-        new_state.x += timestep * state.vx * math.cos(state.yaw)
-        new_state.y += timestep * state.vx * math.sin(state.yaw)
+
+        cy, sy = math.cos(state.yaw), math.sin(state.yaw)
+        rotation = np.array([[cy, -sy], [sy, cy]])
+
+        vel_vec = np.array([state.vx, state.vy])
+        acc_vec = np.array([state.ax, state.ay])
+
+        rot_vel = np.matmul(rotation, vel_vec.T)
+        rot_acc = np.matmul(rotation, acc_vec.T)
+
+        new_state.x += timestep * rot_vel[0] + 0.5*timestep*rot_acc[0]
+        new_state.y += timestep * rot_vel[1] + 0.5*timestep*rot_acc[1]
         new_state.yaw += timestep * state.vyaw
         new_state.vx += timestep * state.ax
-
+        new_state.vy += timestep * state.ay
         return np.array(new_state)
-
 
 def main():
     parser = argparse.ArgumentParser(description='ROS node to estimate fused odometry from multiple odometry and IMU inputs.')

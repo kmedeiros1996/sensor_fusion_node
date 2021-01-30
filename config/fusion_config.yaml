@@ -24,30 +24,29 @@ init_pose:
 sensor_inputs:
   - topic: "imu"
     type: "imu"
-    meas_covar: [[0.01, 0.0], [0.0, 0.01]]
+    meas_covar: [[0.15, 0.0, 0.0], [0.0, 0.4, 0.0], [0.0, 0.0, 0.4]]
     frame: None
     enable: True
 
   - topic: "odom_noisy"
     type: "odometry"
-    meas_covar: [[0.1, 0.0], [0.0, 0.5]]
+    meas_covar: [[0.15, 0.0, 0.0], [0.0, 0.5, 0.0], [0.0, 0.0, 0.15]]
     frame: None
     enable: True
 
   - topic: "lidar_odom"
     type: "odometry"
-    meas_covar: [[0.1, 0.0], [0.0, 0.1]]
+    meas_covar: [[0.0, 0., 0.03], [0., 0.02, 0.2 ], [0.0, 0.2, 6.58]]
     frame: base_scan
     enable: False
 
   - topic: "visual_odom"
     type: "odometry"
-    meas_covar: [[0.001, 0.0], [0.0, 0.001]]
-
+    meas_covar: [[0.001, 0.0, 0.0], [0.0, 0.001, 0.0], [0.0, 0.0, 0.001]]
     frame: None
     enable: False
 
 # Provide initial state and covariance values here, along with the process noise
-init_state: [0.,0.,0.,0.,0.,0.]
-init_cov_sigmas: [.5, .5, 0.001, 0.001, 0.001, 0.001]
-proc_noise_sigmas: [0.01, 0.01, 0.001, 0.25, 0.025, 0.0015]
+init_state: [0.,0.,0.,0.,0.,0.,0.,0.]
+init_cov_sigmas: [0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001, 0.001]
+proc_noise_sigmas: [0.001, 0.001, 0.004, 0.0025, 0.025, 0.0025, 0.025, 0.25]
