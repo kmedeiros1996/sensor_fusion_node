@@ -28,24 +28,24 @@ import math
 import rospy
 from sensor_msgs.msg import Imu
 from nav_msgs.msg import Odometry
-from geometry_msgs.msg import Quaternion, Pose, Twist, PoseWithCovariance, TwistWithCovariance, PoseArray
-from tf.transformations import euler_from_quaternion, quaternion_from_euler
 
 #Sensor Fusion Node
 from conversion import *
 from utils import *
+from data_receivers import *
+
 
 class SensorFusionNode:
     def __init__(self, args):
 
-        port = rospy.get_param('config', args.config_file)
-        stream = open(args.config_file, 'r')
+        file = rospy.get_param('config', args.config_file)
 
-        self.config = yaml.safe_load(stream)
+        config_file = open(args.config_file, 'r')
+        self.config = yaml.safe_load(config_file)
+        config_file.close()
 
         init_cov = gen_covariance_matrix(np.array(self.config["init_cov_sigmas"]))
         proc_noise = gen_covariance_matrix(np.array(self.config["proc_noise_sigmas"]))
-
         init_state = self.config["init_state"]
         self.filter_ = UKF(len(init_state), proc_noise, np.array(init_state), init_cov, args.alpha, args.k, args.beta, self.dynamics_func)
 
@@ -63,120 +63,82 @@ class SensorFusionNode:
         self.rate_ = rospy.Rate(args.rate)
         self.prev_timestamp_ = rospy.Time.now()
 
-        # Main filter loop
-        while not rospy.is_shutdown():
-            now = rospy.Time.now()
-            delta_t = (now - self.prev_timestamp_).to_sec()
-            self.filter_.predict(delta_t)
+        self.spin()
 
-            self.sigmas_pub_.publish(sigmas_2_pose_array(self.filter_.sigmas.T))
-            self.fused_odom_pub_.publish(state_2_odom(StateVec(*self.filter_.get_state()), self.filter_.get_covar()))
-            self.prev_timestamp_ = now
-            self.rate_.sleep()
+    def spin(self):
+        """
+        Main filter loop.
+        For each sensor provided in the yaml, will update the filter each iteration
+        if the measurement is available.
+        """
+        try:
+            while not rospy.is_shutdown():
+                now = rospy.Time.now()
+                delta_t = (now - self.prev_timestamp_).to_sec()
+                self.filter_.predict(delta_t)
+
+                if not self.is_init_:
+                    if "init_pose" not in self.config.keys():
+                        self.is_init_ = True
+                    else:
+                        init_state = self.init_receiver_.get_data()
+                        if init_state is not None:
+                            self.filter_.set_state(init_state)
+                            print("Initialized filter state to", init_state)
+                            self.is_init_ = True
+
+                if self.is_init_:
+                    for topic, sensor in self.sensor_receivers_.items():
+                        measurement = sensor.get_data()
+                        if measurement is not None:
+                            self.filter_.update(sensor.update_indices, measurement, sensor.covariance)
+
+                if "groundtruth" in self.config.keys():
+                    true_state = self.gt_receiver_.get_data()
+                    if true_state is not None:
+                        est_state = self.filter_.get_state()[:5]
+                        diff = true_state - est_state
+                        error_dist = math.sqrt(diff[:2].dot(diff[:2]))
+
+                        if diff[2] < -math.pi: diff[2]+=2.0*math.pi
+                        if diff[2] >= math.pi: diff[2]-=2.0*math.pi
+
+                        print("Actual: ", true_state)
+                        print("Est:    ", est_state)
+                        print("State Diff: ", diff)
+                        print("Distance XY: ", error_dist)
+                        print("Error Yaw  : ", np.degrees(diff[2]))
+
+                self.sigmas_pub_.publish(sigmas_2_pose_array(self.filter_.sigmas.T, self.config["fixed_frame"]))
+                self.fused_odom_pub_.publish(state_2_odom(StateVec(*self.filter_.get_state()), self.filter_.get_covar(), self.config["fixed_frame"]))
+                self.prev_timestamp_ = now
+                self.rate_.sleep()
+
+        except rospy.ROSInterruptException as e:
+            print ("Shutting down...", e)
 
     def init_subscribers(self):
-        self.subscribers_ = list()
+        """
+        Instantiates data receiver objects to read measurements for the filter to update.
+        """
+        self.sensor_receivers_ = dict()
 
-        self.callbacks = {
-        "init": self.ukf_init_callback,
-        "imu" : self.ukf_imu_update,
-        "odometry" : self.ukf_odom_update,
-        "groundtruth" : self.ukf_gt_callback,
+        receivers = {
+        "imu" : IMUReceiver,
+        "odometry" : OdometryReceiver
         }
 
-        self.types = {
-        "init": Odometry,
-        "imu" : Imu,
-        "odometry" : Odometry,
-        "groundtruth" : Odometry,
-        }
+        if "groundtruth" in self.config.keys():
+            gt_data = self.config["groundtruth"]
+            self.gt_receiver_ = GroundtruthReceiver(gt_data["topic"], self.config["fixed_frame"], gt_data["frame"])
+
+        if "init_pose" in self.config.keys():
+            init_data = self.config["init_pose"]
+            self.init_receiver_ = InitReceiver(init_data["topic"], self.config["fixed_frame"], init_data["frame"])
 
         for input in self.config["sensor_inputs"]:
-            print("Listening for ", input["type"],"on topic", input["topic"])
-            sub = rospy.Subscriber(input["topic"], self.types[input["type"]], self.callbacks[input["type"]], input["meas_covar"])
-            self.subscribers_.append(sub)
-
-    def ukf_init_callback(self, msg, data):
-        """
-        Callback for initializing the sensor fusion node with an init pose and velocity.
-        If no base pose has been set, will set the current filter state
-        to the input pose and velocity.
-        """
-        if not self.is_init_:
-            state_vec = odom_to_state(msg)
-            self.filter_.set_state(state_vec)
-            self.is_init_ = True
-            print("Initialized filter state to ",state_vec)
-
-    def ukf_gt_callback(self, msg, data):
-        """
-        Callback for computing the residual of the current state vs groundtruth data.
-        Note: Since this callback takes messages of type nav_msgs::Odometry,
-        error is computed w.r.t. all states except acceleration.
-        Prints the actual state, estimated state, diff, and error to the screen.
-        """
-        # TODO: Save these error values to a .txt or publish on a different topic.
-        est_state = self.filter_.get_state()[:5]
-        true_state = odom_to_state(msg)[:5]
-
-        diff = true_state - est_state
-
-        error = math.sqrt(diff.dot(diff))
-
-        print("Actual: ", true_state)
-        print("Est:    ", est_state)
-        print("State Diff: ", diff)
-        print("Dist Error: ", error)
-
-    def ukf_imu_update(self, msg, meas_covar):
-        """
-        Callback for updating the sensor fusion node with a new IMU measurement.
-        IMU measurements are used to update the angular yaw rate and acceleration in x.
-
-        The measurement covariance takes the form
-        [[cov(vyaw, vyaw), cov(vyaw, ax)],
-          cov(ax, vyaw), cov(ax, ax)]
-
-        If meas_covar is not provided in the yaml file, this callback will extract the covariance
-        from the message itself and put it in the above form.
-        """
-
-        vyaw = msg.angular_velocity.z
-        ax = msg.linear_acceleration.x
-
-        if meas_covar is None:
-            r_ang_vel = np.reshape(msg.angular_velocity_covariance, (3, 3))
-            r_lin_acc = np.reshape(msg.linear_acceleration_covariance, (3, 3))
-            meas_covar = [[r_ang_vel[2, 2], 0], [0, r_lin_acc[0,0]]]
-
-        states_to_update = [ivyaw, iax]
-        measurements = [vyaw, ax]
-        self.filter_.update(states_to_update, measurements, meas_covar)
-
-    def ukf_odom_update(self, msg, meas_covar):
-        """
-        Callback for updating the sensor fusion node with a new odometry measurement.
-        Updates the state vector with new velocity_x and velocity_yaw.
-
-        Odometry measurements are used to update the angular yaw rate and velocity in x.
-
-        The measurement covariance takes the form
-        [[cov(vx, vx), cov(vx, vyaw)],
-         cov(vyaw, vx), cov(vyaw, vyaw)]
-
-        If meas_covar is not provided in the yaml file, this callback will extract the covariance
-        from the message itself and put it in the above form.
-        """
-
-        if meas_covar is None:
-            r = np.reshape(msg.twist.covariance, (3, 3))
-            meas_covar = [[r[0,0], r[0,5]],[r[5,0], r[5,5]]]
-
-        vx = msg.twist.twist.linear.x
-        vyaw = msg.twist.twist.angular.z
-
-        self.filter_.update([ivx, ivyaw], [vx, vyaw], meas_covar)
-
+            if input["enable"]:
+                self.sensor_receivers_[input["topic"]] = receivers[input["type"]](input["topic"], self.config["fixed_frame"], input["frame"], input["meas_covar"])
 
     def dynamics_func(self, state_vec, timestep, inputs):
         """
@@ -211,7 +173,7 @@ def main():
     parser = argparse.ArgumentParser(description='ROS node to estimate fused odometry from multiple odometry and IMU inputs.')
 
     # Node config parameters
-    parser.add_argument('--rate',action='store', type = float, default=10, help = 'filter rate')
+    parser.add_argument('--rate',action='store', type = float, default=200, help = 'filter rate')
     parser.add_argument('--config_file',action='store', type = str, default=os.getcwd() + "/src/sensor_fusion_node/config/fusion_config.yaml", help = 'config file' )
     parser.add_argument('--out_odom_topic',action='store', type = str, default="fused_odom", help = 'Output fused odom topic' )
     parser.add_argument('--out_sigmas_topic',action='store', type = str, default="sigmas", help = 'Output sigma points topic' )
@@ -224,10 +186,7 @@ def main():
     args, _ = parser.parse_known_args()
     np.set_printoptions(precision=2, suppress=True, linewidth=200)
 
-    try:
-        node = SensorFusionNode(args)
-    except rospy.ROSInterruptException:
-        print ("Shutting down...")
+    node = SensorFusionNode(args)
 
 if __name__ == "__main__":
     main()

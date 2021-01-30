@@ -46,7 +46,7 @@ def state_2_twist(state_vec):
     return out
 
 def fill_pose_covariance(cov):
-    out = np.eye(6)
+    out = 0.001*np.eye(6)
     out[:iy+1, :iy+1] = cov[:iy+1, :iy+1]
 
     out[:2, 5] = cov[:2, 2]
@@ -76,18 +76,18 @@ def state_to_pose_with_cov(state_vec, cov):
     out.covariance = fill_pose_covariance(cov)
     return out
 
-def state_2_odom(state_vec, covariance):
+def state_2_odom(state_vec, covariance, frame="odom"):
     out = Odometry()
     out.header.stamp = rospy.Time.now()
-    out.header.frame_id = "odom"
+    out.header.frame_id = frame
     out.pose = state_to_pose_with_cov(state_vec, covariance)
     out.twist = state_to_twist_with_cov(state_vec, covariance)
     return out
 
-def sigmas_2_pose_array(sigmas):
+def sigmas_2_pose_array(sigmas, frame="odom"):
     out = PoseArray()
     out.header.stamp = rospy.Time.now()
-    out.header.frame_id = "odom"
+    out.header.frame_id = frame
     for sig_pt in sigmas:
         out.poses.append(state_2_pose(StateVec(*sig_pt)))
     return out

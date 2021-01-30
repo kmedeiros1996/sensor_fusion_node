@@ -1,41 +1,51 @@
+
+# Fixed frame of the robot
+fixed_frame: "odom"
+
+# groundtruth (Compare the current state against a groundtruth measurement)
+groundtruth:
+    topic: "odom"
+    frame: "odom"
+
+# init_pose initializes the filter with this odometry measurement
+init_pose:
+    topic: "odom"
+    frame: "odom"
+
 # Sensor inputs can be of type
-# init (initialize the filter with this odometry measurement)
 # imu (update the filter with an IMU measurement)
 # odom (update the filter with an odom measurement)
-# groundtruth (Compare the current state against a groundtruth measurement)
 
 # Measurement covariance can be provided here, or if the measurement noise is
 # specified in the message itself/not used for the message type, replaced with None
+# For convenience, an enable flag is available to selectively enable sensor inputs for debugging
 
+# TODO: Further tuning of these parameters is needed to produce an optimal state estimate
 sensor_inputs:
-  - topic: "odom"
-    type: "init"
-    meas_covar: None
-
-  - topic: "odom"
-    type: "groundtruth"
-    meas_covar: None
-
   - topic: "imu"
     type: "imu"
     meas_covar: [[0.01, 0.0], [0.0, 0.01]]
-
-  - topic: "odom"
-    type: "init"
-    meas_covar: None
+    frame: None
+    enable: True
 
   - topic: "odom_noisy"
     type: "odometry"
     meas_covar: [[0.1, 0.0], [0.0, 0.5]]
+    frame: None
+    enable: True
 
   - topic: "lidar_odom"
     type: "odometry"
     meas_covar: [[0.1, 0.0], [0.0, 0.1]]
+    frame: base_scan
+    enable: False
 
   - topic: "visual_odom"
     type: "odometry"
     meas_covar: [[0.001, 0.0], [0.0, 0.001]]
 
+    frame: None
+    enable: False
 
 # Provide initial state and covariance values here, along with the process noise
 init_state: [0.,0.,0.,0.,0.,0.]
