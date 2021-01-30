@@ -1,0 +1,15 @@
+<launch>
+<arg name="yaml_config_file" default="$(find sensor_fusion_node)/config/fusion_config.yaml"/>
+<arg name="csv_folder" default="$(find sensor_fusion_node)/data/"/>
+<arg name="rviz_file" default="$(find sensor_fusion_node)/rviz/fusion.rviz"/>
+
+<include file="$(find sensor_fusion_node)/launch/sensor_fusion.launch">
+  <arg name="csv_folder" value="$(arg csv_folder)" />
+  <arg name="yaml_config_file" value="$(arg yaml_config_file)" />
+  <arg name="rviz_file" value="$(arg rviz_file)" />
+</include>
+
+
+<include file="$(find sensor_fusion_node)/launch/auxiliary_nodes.launch"></include>
+
+</launch>

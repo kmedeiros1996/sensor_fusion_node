@@ -1,0 +1,7 @@
+<launch>
+  <arg name="rviz_file" default="$(find sensor_fusion_node)/rviz/fusion.rviz"/>
+
+  <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_file)"/>
+
+
+</launch>

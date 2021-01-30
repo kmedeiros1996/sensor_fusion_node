@@ -1,8 +1,17 @@
 <launch>
   <arg name="yaml_config_file" default="$(find sensor_fusion_node)/config/fusion_config.yaml"/>
-  <node pkg="sensor_fusion_node" type="sensor_fusion_node.py" name="sensor_fusion_node" output="screen" args="--config_file $(arg yaml_config_file)">
+  <arg name="csv_folder" default="$(find sensor_fusion_node)/data/"/>
+  <arg name="fixed_frame" default="world"/>
+  <arg name="odom_frame" default="odom"/>
+  <arg name="rviz_file" default="$(find sensor_fusion_node)/rviz/fusion.rviz"/>
+
+
+  <node pkg="sensor_fusion_node" type="sensor_fusion_node.py" name="sensor_fusion_node" output="screen" args="--config_file $(arg yaml_config_file) --csv_folder $(arg csv_folder)">
   </node>
 
-  <arg name="rviz_file" default="$(find sensor_fusion_node)/rviz/fusion.rviz"/>
-  <node name="rviz" pkg="rviz" type="rviz" args="-d $(arg rviz_file)"/>
+  <include file="$(find sensor_fusion_node)/launch/visualization.launch">
+    <arg name="rviz_file" value="$(arg rviz_file)" />
+  </include>
+
+
 </launch>
